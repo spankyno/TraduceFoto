@@ -211,15 +211,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             /* TAB 2: CRÉDITOS Y OPERATIVA */
             <div className="space-y-5">
               {/* OG Image banner preview */}
-              <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-md">
-                <img
-                  src="/og-image.png"
-                  alt="FotoTraductor OpenGraph Card"
-                  className="w-full h-auto object-cover max-h-40"
-                />
-                <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Tarjeta Open Graph y Twitter: <code className="text-sky-300 font-mono">og-image.png</code></span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">1200x630</span>
+              <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-xl p-2 sm:p-2.5 space-y-2">
+                <div className="flex items-center justify-between px-1 text-[11px] text-slate-400 font-medium">
+                  <span className="flex items-center gap-1.5 text-slate-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Tarjeta oficial (Open Graph & Twitter)
+                  </span>
+                  <span className="font-mono text-[10px] bg-slate-800/90 text-sky-300 px-2 py-0.5 rounded border border-slate-700/60">
+                    public/og-image.png
+                  </span>
+                </div>
+                <div className="rounded-xl overflow-hidden border border-slate-800/80 bg-black/80 shadow-inner flex items-center justify-center">
+                  <img
+                    src="/og-image.png"
+                    alt="FotoTraductor - Tarjeta Social Personalizada"
+                    className="w-full h-auto max-h-64 object-contain rounded-lg"
+                    loading="eager"
+                  />
                 </div>
               </div>
 
