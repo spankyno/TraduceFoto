@@ -331,7 +331,13 @@ export default function App() {
           isLoading={isTranslating}
           error={translationError}
           onAccept={handleResetToCamera}
-          onRetry={handleResetToCamera}
+          onRetry={() => {
+            if (translationError) {
+              processImageForTranslation(capturedImage, targetLanguage);
+            } else {
+              handleResetToCamera();
+            }
+          }}
         />
       )}
 

@@ -134,19 +134,42 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
         {/* Error state */}
         {!isLoading && error && (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+            <div
+              className={`w-14 h-14 rounded-full flex items-center justify-center ${
+                error.toLowerCase().includes('503') || error.toLowerCase().includes('demanda')
+                  ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+                  : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+              }`}
+            >
               <AlertCircle className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-rose-200">Error en la traducción</h3>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs">{error}</p>
+              <h3 className="text-base font-semibold text-white">
+                {error.toLowerCase().includes('503') || error.toLowerCase().includes('demanda')
+                  ? 'Servidores con alta demanda'
+                  : 'Error en la traducción'}
+              </h3>
+              <p className="text-xs text-slate-300 mt-1.5 max-w-xs leading-relaxed">
+                {error.toLowerCase().includes('503') || error.toLowerCase().includes('demanda')
+                  ? 'Google AI está procesando un volumen alto de solicitudes. Pulsa en reintentar para procesar la imagen de nuevo.'
+                  : error}
+              </p>
             </div>
-            <button
-              onClick={onRetry}
-              className="mt-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium border border-slate-700 transition"
-            >
-              Reintentar foto
-            </button>
+            <div className="flex flex-col gap-2 w-full max-w-xs pt-2">
+              <button
+                onClick={onRetry}
+                className="w-full py-3 px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-lg shadow-sky-900/30 transition flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Reintentar traducción</span>
+              </button>
+              <button
+                onClick={onAccept}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition"
+              >
+                Volver a la cámara
+              </button>
+            </div>
           </div>
         )}
 

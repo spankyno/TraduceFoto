@@ -138,29 +138,43 @@ Analiza detenidamente la imagen capturada por la cámara del usuario:
       },
     };
 
-    // Candidate models as per Gemini API guidelines: gemini-3.8-flash and gemini-flash-latest
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    // Candidate models as per Gemini API guidelines: gemini-3.8-flash, gemini-flash-latest, and gemini-3.1-flash-lite
+    const candidateModels = [
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
+    ];
     let lastError: any = null;
     let responseText: string | undefined;
 
     for (const model of candidateModels) {
-      try {
-        const res = await ai.models.generateContent({
-          model,
-          contents: {
-            parts: [imagePart, { text: promptText }],
-          },
-          config,
-        });
-        responseText = res.text;
-        if (responseText) break;
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Model ${model} failed, trying next:`, err?.message || err);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await ai.models.generateContent({
+            model,
+            contents: {
+              parts: [imagePart, { text: promptText }],
+            },
+            config,
+          });
+          responseText = res.text;
+          if (responseText) break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Model ${model} attempt ${attempt + 1} failed:`, err?.message || err);
+          // Wait briefly before retrying if 503 or transient error
+          await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+        }
       }
+      if (responseText) break;
     }
 
     if (!responseText) {
+      if (lastError && String(lastError).includes('503')) {
+        throw new Error(
+          'Los servidores de Google AI tienen alta demanda en este momento. Por favor, pulsa en Reintentar en unos segundos.'
+        );
+      }
       throw lastError || new Error('La respuesta del modelo de IA estuvo vacía.');
     }
 

@@ -136,43 +136,67 @@ Analiza detenidamente la imagen capturada por la cámara del usuario:
       },
     };
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    const candidateModels = [
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
+    ];
     let lastError: string | null = null;
     let responseText: string | undefined;
 
     for (const model of candidateModels) {
-      try {
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'aistudio-build',
-            },
-            body: JSON.stringify(requestPayload),
+      // Allow up to 2 attempts per model with exponential backoff if 503 / 429
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'aistudio-build',
+              },
+              body: JSON.stringify(requestPayload),
+            }
+          );
+
+          if (!geminiRes.ok) {
+            const errBody = await geminiRes.text();
+            lastError = `Status ${geminiRes.status}: ${errBody}`;
+            // If 503 (high demand) or 429 (rate limit), wait briefly before retrying
+            if (geminiRes.status === 503 || geminiRes.status === 429) {
+              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+              continue;
+            } else {
+              break; // Don't retry other status codes on same model
+            }
           }
-        );
 
-        if (!geminiRes.ok) {
-          const errBody = await geminiRes.text();
-          lastError = `Status ${geminiRes.status}: ${errBody}`;
-          continue;
+          const geminiJson: any = await geminiRes.json();
+          const candidate = geminiJson.candidates?.[0];
+          responseText = candidate?.content?.parts?.[0]?.text;
+
+          if (responseText) {
+            break;
+          }
+        } catch (err: any) {
+          lastError = err?.message || String(err);
+          await new Promise((resolve) => setTimeout(resolve, 800));
         }
+      }
 
-        const geminiJson: any = await geminiRes.json();
-        const candidate = geminiJson.candidates?.[0];
-        responseText = candidate?.content?.parts?.[0]?.text;
-
-        if (responseText) {
-          break;
-        }
-      } catch (err: any) {
-        lastError = err?.message || String(err);
+      if (responseText) {
+        break;
       }
     }
 
     if (!responseText) {
+      // Provide a clean, friendly explanation if it was a 503
+      if (lastError && lastError.includes('503')) {
+        throw new Error(
+          'Los servidores de Google AI tienen alta demanda en este momento. Por favor, pulsa en Reintentar en unos segundos.'
+        );
+      }
       throw new Error(lastError || 'La respuesta del modelo de Gemini estuvo vacía.');
     }
 
