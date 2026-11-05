@@ -2,6 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Suppress Vite HMR WebSocket connection errors in environments where HMR is disabled
+      window.addEventListener('error', function(e) {
+        if (e && e.message && (e.message.includes('WebSocket') || e.message.includes('ws://') || e.message.includes('wss://'))) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e && e.reason ? (e.reason.message || String(e.reason)) : '';
+        if (reason && (reason.includes('WebSocket') || reason.includes('ws://') || reason.includes('wss://'))) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>FotoTraductor - Cámara y Traducción</title>
     <meta name="description" content="Aplicación móvil sencilla para capturar texto con la cámara y traducirlo al instante con detección automática de idioma." />
@@ -14,8 +30,13 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta property="og:title" content="FotoTraductor - Cámara y Traducción" />
     <meta property="og:description" content="Aplicación móvil sencilla para capturar texto con la cámara y traducirlo al instante con detección automática de idioma." />
+    <meta property="og:image" content="/og-image.png" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FotoTraductor - Cámara y Traducción" />
+    <meta name="twitter:description" content="Apunta la cámara a cualquier texto y obtén traducción instantánea con detección automática de idioma." />
+    <meta name="twitter:image" content="/og-image.png" />
+    <meta name="author" content="Aitor Sánchez Gutiérrez" />
   </head>
   <body>
     <div id="root"></div>

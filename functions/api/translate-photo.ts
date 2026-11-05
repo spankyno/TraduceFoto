@@ -13,16 +13,21 @@ export const onRequestPost = async (context: {
 }): Promise<Response> => {
   const { request, env } = context;
 
-  const apiKey = env.GEMINI_API_KEY;
+  const apiKey =
+    request.headers.get('x-gemini-api-key')?.trim() ||
+    request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ||
+    env.GEMINI_API_KEY?.trim();
+
   if (!apiKey) {
     return new Response(
       JSON.stringify({
         success: false,
+        requiresApiKey: true,
         error:
-          'GEMINI_API_KEY no está configurada en las Variables de Entorno de Cloudflare Pages.',
+          'No se ha configurado ninguna clave de API. Por favor, pulsa en Ajustes (icono ⚙️) e introduce tu GEMINI API KEY.',
       }),
       {
-        status: 500,
+        status: 401,
         headers: { 'Content-Type': 'application/json' },
       }
     );

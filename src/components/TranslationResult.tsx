@@ -10,6 +10,7 @@ import {
   VolumeX,
   Sparkles,
   AlertCircle,
+  Settings,
 } from 'lucide-react';
 
 export interface TranslationData {
@@ -30,6 +31,7 @@ interface TranslationResultProps {
   error: string | null;
   onAccept: () => void;
   onRetry: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const TranslationResult: React.FC<TranslationResultProps> = ({
@@ -39,6 +41,7 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
   error,
   onAccept,
   onRetry,
+  onOpenSettings,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -156,9 +159,18 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
               </p>
             </div>
             <div className="flex flex-col gap-2 w-full max-w-xs pt-2">
+              {onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  className="w-full py-3 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-lg shadow-amber-900/30 transition flex items-center justify-center gap-2"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Configurar clave en Ajustes</span>
+                </button>
+              )}
               <button
                 onClick={onRetry}
-                className="w-full py-3 px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-lg shadow-sky-900/30 transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-lg shadow-sky-900/30 transition flex items-center justify-center gap-2"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Reintentar traducción</span>

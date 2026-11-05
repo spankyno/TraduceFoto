@@ -8,8 +8,10 @@ import {
   ZapOff,
   RefreshCw,
   Info,
+  Settings,
 } from 'lucide-react';
 import { useCamera } from './hooks/useCamera';
+import { useAppSettings } from './hooks/useAppSettings';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LanguageSelector } from './components/LanguageSelector';
@@ -18,6 +20,7 @@ import {
   TranslationData,
 } from './components/TranslationResult';
 import { SamplePhotosPicker } from './components/SamplePhotosPicker';
+import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
   const {
@@ -33,6 +36,8 @@ export default function App() {
     retryCamera,
   } = useCamera();
 
+  const { apiKey, setApiKey, hasApiKey, provider, setProvider } = useAppSettings();
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Application states
@@ -42,9 +47,11 @@ export default function App() {
   const [translationError, setTranslationError] = useState<string | null>(null);
   const [targetLanguage, setTargetLanguage] = useState<string>('Español');
   const [isSamplePickerOpen, setIsSamplePickerOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'credits'>('api');
   const [shutterFlash, setShutterFlash] = useState(false);
 
-  // Send image to translation endpoint
+  // Send image to translation endpoint with user API key header
   const processImageForTranslation = async (base64Img: string, targetLang: string) => {
     setCapturedImage(base64Img);
     setIsTranslating(true);
@@ -52,11 +59,19 @@ export default function App() {
     setTranslationData(null);
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      // Send user's API key securely via HTTPS request header
+      if (apiKey) {
+        headers['x-gemini-api-key'] = apiKey;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
       const response = await fetch('/api/translate-photo', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           image: base64Img,
           targetLanguage: targetLang,
@@ -66,6 +81,11 @@ export default function App() {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
+        if (result.requiresApiKey) {
+          throw new Error(
+            'Debes configurar tu GEMINI API KEY en Ajustes (icono ⚙️) para poder traducir.'
+          );
+        }
         throw new Error(result.error || 'Error al procesar la traducción de la imagen.');
       }
 
@@ -116,7 +136,6 @@ export default function App() {
       }
     };
     reader.readAsDataURL(file);
-    // Reset input so same file can be selected again
     e.target.value = '';
   };
 
@@ -126,6 +145,11 @@ export default function App() {
     setTranslationData(null);
     setTranslationError(null);
     setIsTranslating(false);
+  };
+
+  const openSettings = (tab: 'api' | 'credits' = 'api') => {
+    setSettingsInitialTab(tab);
+    setIsSettingsOpen(true);
   };
 
   return (
@@ -162,7 +186,6 @@ export default function App() {
             onSelectLanguage={(lang) => {
               setTargetLanguage(lang);
               if (capturedImage && !isTranslating) {
-                // If an image is currently shown, retranslate to new language
                 processImageForTranslation(capturedImage, lang);
               }
             }}
@@ -170,6 +193,18 @@ export default function App() {
 
           {/* Android PWA Install button */}
           <PWAInstallButton />
+
+          {/* Settings / API Key / Credits button */}
+          <button
+            onClick={() => openSettings('api')}
+            className="relative p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 backdrop-blur-md transition shadow-md active:scale-95"
+            title="Ajustes y Créditos"
+          >
+            <Settings className="w-4 h-4" />
+            {!hasApiKey && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-slate-900 animate-pulse" />
+            )}
+          </button>
         </div>
       </header>
 
@@ -229,11 +264,21 @@ export default function App() {
         {/* Viewfinder Target Reticle / Scanner Brackets */}
         {isStreaming && !cameraError && (
           <div className="absolute inset-x-8 inset-y-24 pointer-events-none flex flex-col items-center justify-between">
-            {/* Top guide banner */}
-            <div className="px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md text-[11px] font-medium text-slate-200 border border-white/10 flex items-center gap-1.5 shadow-lg">
-              <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-              <span>Apunta al texto a traducir</span>
-            </div>
+            {/* Top guide banner or missing API key banner */}
+            {!hasApiKey ? (
+              <button
+                onClick={() => openSettings('api')}
+                className="pointer-events-auto px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-xl transition active:scale-95 animate-bounce"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Configurar Gemini API Key en Ajustes</span>
+              </button>
+            ) : (
+              <div className="px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md text-[11px] font-medium text-slate-200 border border-white/10 flex items-center gap-1.5 shadow-lg">
+                <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                <span>Apunta al texto a traducir</span>
+              </div>
+            )}
 
             {/* Target Reticle Frame */}
             <div className="relative w-full max-w-sm aspect-[4/3] rounded-3xl border border-white/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]">
@@ -252,7 +297,7 @@ export default function App() {
 
             {/* Bottom guide text */}
             <div className="text-[11px] text-slate-300 font-medium text-center bg-black/40 px-3 py-1 rounded-full backdrop-blur-md">
-              Detecta automáticamente cualquier idioma
+              Detección automática de cualquier idioma
             </div>
           </div>
         )}
@@ -311,14 +356,21 @@ export default function App() {
           </div>
         </div>
 
-        {/* Small test sample button at the very bottom */}
-        <div className="mt-3 flex items-center justify-center">
+        {/* Small test sample and credits link at the very bottom */}
+        <div className="mt-3 flex items-center justify-center gap-4 text-[11px] text-slate-400">
           <button
             onClick={() => setIsSamplePickerOpen(true)}
-            className="text-[11px] text-slate-400 hover:text-sky-300 transition underline underline-offset-2 flex items-center gap-1"
+            className="hover:text-sky-300 transition underline underline-offset-2 flex items-center gap-1"
           >
             <Info className="w-3 h-3" />
-            ¿Sin cartel a mano? Probar con ejemplos (Japonés, Alemán, etc.)
+            Fotos de prueba
+          </button>
+          <span>•</span>
+          <button
+            onClick={() => openSettings('credits')}
+            className="hover:text-sky-300 transition underline underline-offset-2 flex items-center gap-1"
+          >
+            <span>Créditos y Operativa</span>
           </button>
         </div>
       </footer>
@@ -338,6 +390,7 @@ export default function App() {
               handleResetToCamera();
             }
           }}
+          onOpenSettings={() => openSettings('api')}
         />
       )}
 
@@ -348,6 +401,17 @@ export default function App() {
         onSelectSample={(sampleBase64) => {
           processImageForTranslation(sampleBase64, targetLanguage);
         }}
+      />
+
+      {/* Settings Modal with API Key and Credits Tabs */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        apiKey={apiKey}
+        onSaveApiKey={setApiKey}
+        provider={provider}
+        onSaveProvider={setProvider}
+        initialTab={settingsInitialTab}
       />
     </div>
   );

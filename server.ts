@@ -38,11 +38,19 @@ app.post('/api/translate-photo', async (req, res) => {
       });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const authHeader = req.headers.authorization;
+    const customHeader = req.headers['x-gemini-api-key'];
+    const apiKey =
+      (typeof customHeader === 'string' ? customHeader.trim() : '') ||
+      (authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '') ||
+      process.env.GEMINI_API_KEY;
+
     if (!apiKey) {
-      return res.status(500).json({
+      return res.status(401).json({
+        success: false,
+        requiresApiKey: true,
         error:
-          'La clave de API de Gemini no está configurada en las variables de entorno del servidor. Por favor, asegúrate de configurar GEMINI_API_KEY en los secretos.',
+          'No se ha configurado ninguna clave de API. Por favor, pulsa en Ajustes (icono ⚙️) e introduce tu GEMINI API KEY.',
       });
     }
 
@@ -203,7 +211,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+        hmr: false,
       },
       appType: 'spa',
     });
