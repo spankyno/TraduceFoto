@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <script>
@@ -18,29 +18,185 @@
         }
       }, true);
     </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>FotoTraductor - Cámara y Traducción</title>
-    <meta name="description" content="Aplicación móvil sencilla para capturar texto con la cámara y traducirlo al instante con detección automática de idioma." />
+
+    <!-- Primary Meta Tags -->
+    <title>FotoTraductor – Traduce texto de fotos al instante con la cámara</title>
+    <meta name="title" content="FotoTraductor – Traduce texto de fotos al instante con la cámara" />
+    <meta name="description" content="Apunta la cámara a cualquier texto (menús, carteles, documentos, etiquetas…) y obtén la traducción instantánea con detección automática de idioma. PWA gratuita, rápida y privada. Usa tu propia clave de Google Gemini." />
+    <meta name="keywords" content="traductor de fotos, OCR, traducción de cámara, traducir texto de imagen, photo translator, Gemini, PWA, traductor móvil, OCR online, traducción instantánea" />
+    <meta name="author" content="Aitor Sánchez Gutiérrez" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
     <meta name="theme-color" content="#0f172a" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="canonical" href="https://traducefoto.pages.dev/" />
+
+    <!-- Google Search Console verification -->
+    <meta name="google-site-verification" content="fK2gZcSYwHHPqDFWdIB5WD1eVONqa6kwIFqkRDRyX4g" />
+
+    <!-- Viewport & PWA -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FotoTraductor" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="application-name" content="FotoTraductor" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Icons -->
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <meta property="og:title" content="FotoTraductor - Cámara y Traducción" />
-    <meta property="og:description" content="Aplicación móvil sencilla para capturar texto con la cámara y traducirlo al instante con detección automática de idioma." />
-    <meta property="og:image" content="/og-image.png" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://traducefoto.pages.dev/" />
+    <meta property="og:title" content="FotoTraductor – Traduce texto de fotos al instante" />
+    <meta property="og:description" content="Apunta la cámara a cualquier texto y obtén la traducción instantánea con detección automática de idioma. PWA gratuita y privada." />
+    <meta property="og:image" content="https://traducefoto.pages.dev/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="FotoTraductor – Cámara y Traducción" />
+    <meta property="og:site_name" content="FotoTraductor" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="FotoTraductor - Cámara y Traducción" />
-    <meta name="twitter:description" content="Apunta la cámara a cualquier texto y obtén traducción instantánea con detección automática de idioma." />
-    <meta name="twitter:image" content="/og-image.png" />
-    <meta name="author" content="Aitor Sánchez Gutiérrez" />
+    <meta name="twitter:url" content="https://traducefoto.pages.dev/" />
+    <meta name="twitter:title" content="FotoTraductor – Traduce texto de fotos al instante" />
+    <meta name="twitter:description" content="Apunta la cámara a cualquier texto y obtén la traducción instantánea con detección automática de idioma." />
+    <meta name="twitter:image" content="https://traducefoto.pages.dev/og-image.png" />
+    <meta name="twitter:image:alt" content="FotoTraductor – Cámara y Traducción" />
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "@id": "https://traducefoto.pages.dev/#app",
+          "name": "FotoTraductor",
+          "alternateName": "FotoTraductor – Cámara y Traducción",
+          "url": "https://traducefoto.pages.dev/",
+          "description": "Aplicación web y PWA que permite capturar o subir una foto, detectar el texto automáticamente mediante OCR y traducirlo al idioma elegido con detección automática de idioma, impulsada por Google Gemini.",
+          "applicationCategory": "UtilitiesApplication",
+          "operatingSystem": "Any",
+          "browserRequirements": "Requires JavaScript and camera or file access",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "EUR"
+          },
+          "featureList": [
+            "Captura de foto con la cámara",
+            "Subida de imágenes desde el dispositivo",
+            "OCR y detección automática de idioma",
+            "Traducción instantánea multiidioma",
+            "PWA instalable offline-ready",
+            "Privacidad: el usuario aporta su propia API key de Gemini"
+          ],
+          "screenshot": "https://traducefoto.pages.dev/og-image.png",
+          "image": "https://traducefoto.pages.dev/og-image.png",
+          "inLanguage": ["es", "en"],
+          "author": {
+            "@type": "Person",
+            "@id": "https://aitorsanchez.pages.dev/#person",
+            "name": "Aitor Sánchez Gutiérrez",
+            "url": "https://aitorsanchez.pages.dev"
+          },
+          "creator": {
+            "@type": "Person",
+            "@id": "https://aitorsanchez.pages.dev/#person"
+          },
+          "publisher": {
+            "@type": "Person",
+            "@id": "https://aitorsanchez.pages.dev/#person"
+          },
+          "isPartOf": {
+            "@type": "WebSite",
+            "@id": "https://aitorhub.vercel.app/#website",
+            "name": "Aitor Hub",
+            "url": "https://aitorhub.vercel.app"
+          },
+          "sameAs": [
+            "https://aitorsanchez.pages.dev",
+            "https://aitorhub.vercel.app"
+          ]
+        },
+        {
+          "@type": "Person",
+          "@id": "https://aitorsanchez.pages.dev/#person",
+          "name": "Aitor Sánchez Gutiérrez",
+          "url": "https://aitorsanchez.pages.dev",
+          "sameAs": [
+            "https://aitorsanchez.pages.dev",
+            "https://aitorhub.vercel.app",
+            "https://aitorsanchez.pages.dev/contacto"
+          ],
+          "jobTitle": "Desarrollador de aplicaciones web y PWA",
+          "worksFor": {
+            "@type": "Organization",
+            "name": "Aitor Hub",
+            "url": "https://aitorhub.vercel.app"
+          }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://traducefoto.pages.dev/#website",
+          "url": "https://traducefoto.pages.dev/",
+          "name": "FotoTraductor",
+          "description": "Traduce texto de fotos al instante con la cámara",
+          "publisher": {
+            "@id": "https://aitorsanchez.pages.dev/#person"
+          },
+          "inLanguage": "es"
+        },
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {
+              "@type": "ListItem",
+              "position": 1,
+              "name": "Aitor Hub",
+              "item": "https://aitorhub.vercel.app"
+            },
+            {
+              "@type": "ListItem",
+              "position": 2,
+              "name": "Blog de Aitor Sánchez",
+              "item": "https://aitorsanchez.pages.dev"
+            },
+            {
+              "@type": "ListItem",
+              "position": 3,
+              "name": "FotoTraductor",
+              "item": "https://traducefoto.pages.dev/"
+            },
+            {
+              "@type": "ListItem",
+              "position": 4,
+              "name": "Contacto",
+              "item": "https://aitorsanchez.pages.dev/contacto"
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+
+    <!-- Analytics / Dashboard tracker (Aitor Hub) -->
+    <script
+      src="https://aitors-hub-dashboard.asanchezgu.workers.dev/tracker.js"
+      data-app="traducefoto"
+      data-key="ak_c1ba79eb57a34b0a827e6ca1c0ce51f5"
+      async
+    ></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

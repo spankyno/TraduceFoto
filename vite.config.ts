@@ -16,7 +16,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'FotoTraductor - Cámara y Traducción',
           short_name: 'FotoTraductor',
-          description: 'Apunta tu cámara a cualquier texto, captura la foto y obtén la traducción instantánea con detección automática de idioma.',
+          description: 'Traduce texto de fotos al instante. Apunta la cámara a menús, carteles o documentos y obtén la traducción automática con OCR y Gemini.',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
