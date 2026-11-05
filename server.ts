@@ -139,7 +139,7 @@ app.post('/api/translate-photo', async (req, res) => {
     const safeTargetLanguage =
       String(targetLanguage)
         .slice(0, 60)
-        .replace(/[^\p{L}\p{N}\s\-]//gu, '')
+        .replace(/[^\p{L}\p{N}\s\-]/gu, '')
         .trim() || 'Español';
 
     const ai = new GoogleGenAI({

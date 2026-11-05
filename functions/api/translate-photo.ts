@@ -221,7 +221,7 @@ export const onRequestPost = async (context: {
     // Basic sanitisation of targetLanguage (prevent prompt injection)
     const safeTargetLanguage = String(targetLanguage)
       .slice(0, 60)
-      .replace(/[^\p{L}\p{N}\s\-]//gu, '')
+      .replace(/[^\p{L}\p{N}\s\-]/gu, '')
       .trim() || 'Español';
 
     const promptText = `
