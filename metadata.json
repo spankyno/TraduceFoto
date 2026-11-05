@@ -1,0 +1,6 @@
+{
+  "name": "FotoTraductor - Cámara y Traducción",
+  "description": "Aplicación móvil sencilla para capturar texto con la cámara y traducirlo al instante con detección automática de idioma.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,68 @@
+2026-11-05T06:54:10.644793Z	Cloning repository...
+2026-11-05T06:54:11.208Z	From https://github.com/spankyno/TraduceFoto
+2026-11-05T06:54:11.20833Z	 * branch            e8443939287a84150a93fcb127b52513f61dd379 -> FETCH_HEAD
+2026-11-05T06:54:11.208406Z	
+2026-11-05T06:54:11.222911Z	HEAD is now at e844393 Add files via upload
+2026-11-05T06:54:11.223131Z	
+2026-11-05T06:54:11.261044Z	
+2026-11-05T06:54:11.261402Z	Using v2 root directory strategy
+2026-11-05T06:54:11.272665Z	Success: Finished cloning repository files
+2026-11-05T06:54:12.541127Z	Checking for configuration in a Wrangler configuration file (BETA)
+2026-11-05T06:54:12.54154Z	
+2026-11-05T06:54:12.655124Z	No Wrangler configuration file found. Continuing.
+2026-11-05T06:54:12.805081Z	Detected the following tools from environment: nodejs@20.20.0, npm@10.9.9
+2026-11-05T06:54:12.80548Z	Installing nodejs 20.20.0
+2026-11-05T06:54:13.38661Z	Trying to update node-build... ok
+2026-11-05T06:54:13.434951Z	To follow progress, use 'tail -f /tmp/node-build.20261105065413.796.log' or pass --verbose
+2026-11-05T06:54:13.477716Z	Downloading node-v20.20.0-linux-x64.tar.gz...
+2026-11-05T06:54:13.540011Z	-> https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-x64.tar.gz
+2026-11-05T06:54:15.462295Z	
+2026-11-05T06:54:15.462558Z	WARNING: node-v20.20.0-linux-x64 is past its end of life and is now unsupported.
+2026-11-05T06:54:15.462627Z	It no longer receives bug fixes or security updates.
+2026-11-05T06:54:15.462672Z	
+2026-11-05T06:54:15.462716Z	Installing node-v20.20.0-linux-x64...
+2026-11-05T06:54:15.858532Z	Installed node-v20.20.0-linux-x64 to /opt/buildhome/.asdf/installs/nodejs/20.20.0
+2026-11-05T06:54:15.858837Z	
+2026-11-05T06:54:16.37683Z	Installing project dependencies: npm install --progress=false
+2026-11-05T06:54:26.239169Z	npm error code ERESOLVE
+2026-11-05T06:54:26.239555Z	npm error ERESOLVE could not resolve
+2026-11-05T06:54:26.239625Z	npm error
+2026-11-05T06:54:26.2397Z	npm error While resolving: vite@8.3.6
+2026-11-05T06:54:26.239754Z	npm error Found: esbuild@0.25.12
+2026-11-05T06:54:26.239789Z	npm error node_modules/esbuild
+2026-11-05T06:54:26.239841Z	npm error   dev esbuild@"^0.25.0" from the root project
+2026-11-05T06:54:26.23988Z	npm error
+2026-11-05T06:54:26.239915Z	npm error Could not resolve dependency:
+2026-11-05T06:54:26.239945Z	npm error peerOptional esbuild@"^0.27.0 || ^0.28.0" from vite@8.3.6
+2026-11-05T06:54:26.239978Z	npm error node_modules/vite
+2026-11-05T06:54:26.240007Z	npm error   vite@"^8.3.0" from the root project
+2026-11-05T06:54:26.240037Z	npm error   peer vite@"^5.2.0 || ^6 || ^7 || ^8" from @tailwindcss/vite@4.3.4
+2026-11-05T06:54:26.240066Z	npm error   node_modules/@tailwindcss/vite
+2026-11-05T06:54:26.240094Z	npm error     @tailwindcss/vite@"^4.3.3" from the root project
+2026-11-05T06:54:26.240123Z	npm error   2 more (@vitejs/plugin-react, vite-plugin-pwa)
+2026-11-05T06:54:26.240151Z	npm error
+2026-11-05T06:54:26.240179Z	npm error Conflicting peer dependency: esbuild@0.28.2
+2026-11-05T06:54:26.240207Z	npm error node_modules/esbuild
+2026-11-05T06:54:26.240236Z	npm error   peerOptional esbuild@"^0.27.0 || ^0.28.0" from vite@8.3.6
+2026-11-05T06:54:26.240277Z	npm error   node_modules/vite
+2026-11-05T06:54:26.240329Z	npm error     vite@"^8.3.0" from the root project
+2026-11-05T06:54:26.240361Z	npm error     peer vite@"^5.2.0 || ^6 || ^7 || ^8" from @tailwindcss/vite@4.3.4
+2026-11-05T06:54:26.240389Z	npm error     node_modules/@tailwindcss/vite
+2026-11-05T06:54:26.240417Z	npm error       @tailwindcss/vite@"^4.3.3" from the root project
+2026-11-05T06:54:26.240454Z	npm error     2 more (@vitejs/plugin-react, vite-plugin-pwa)
+2026-11-05T06:54:26.240483Z	npm error
+2026-11-05T06:54:26.240511Z	npm error Fix the upstream dependency conflict, or retry
+2026-11-05T06:54:26.240538Z	npm error this command with --force or --legacy-peer-deps
+2026-11-05T06:54:26.240566Z	npm error to accept an incorrect (and potentially broken) dependency resolution.
+2026-11-05T06:54:26.240593Z	npm error
+2026-11-05T06:54:26.240621Z	npm error
+2026-11-05T06:54:26.240648Z	npm error For a full report see:
+2026-11-05T06:54:26.240678Z	npm error /opt/buildhome/.npm/_logs/2026-11-05T06_54_16_562Z-eresolve-report.txt
+2026-11-05T06:54:26.241071Z	npm error A complete log of this run can be found in: /opt/buildhome/.npm/_logs/2026-11-05T06_54_16_562Z-debug-0.log
+2026-11-05T06:54:26.259268Z	Error: Exit with error code: 1
+2026-11-05T06:54:26.259422Z	    at ChildProcess.<anonymous> (/snapshot/dist/run-build.js)
+2026-11-05T06:54:26.259495Z	    at Object.onceWrapper (node:events:652:26)
+2026-11-05T06:54:26.259554Z	    at ChildProcess.emit (node:events:537:28)
+2026-11-05T06:54:26.259606Z	    at ChildProcess._handle.onexit (node:internal/child_process:291:12)
+2026-11-05T06:54:26.265445Z	Failed: build command exited with code: 1
+2026-11-05T06:54:26.81034Z	Failed: error occurred while running build command
