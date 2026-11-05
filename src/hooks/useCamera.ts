@@ -119,14 +119,27 @@ export function useCamera() {
     startCamera(nextMode);
   }, [facingMode, startCamera]);
 
-  // Capture current frame from video to base64 JPEG
+  // Capture current frame from video, resized to max 1280px on the longest side
   const capturePhoto = useCallback((): string | null => {
     if (!videoRef.current) return null;
     const video = videoRef.current;
 
-    // Use actual video dimensions
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+    const srcW = video.videoWidth || 1280;
+    const srcH = video.videoHeight || 720;
+
+    // Downscale to max 1280 on the longest side (keeps OCR quality, reduces payload)
+    const MAX = 1280;
+    let width = srcW;
+    let height = srcH;
+    if (srcW > MAX || srcH > MAX) {
+      if (srcW >= srcH) {
+        height = Math.round((srcH * MAX) / srcW);
+        width = MAX;
+      } else {
+        width = Math.round((srcW * MAX) / srcH);
+        height = MAX;
+      }
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -134,6 +147,9 @@ export function useCamera() {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // Mirror image if front camera
     if (facingMode === 'user') {
@@ -143,8 +159,8 @@ export function useCamera() {
 
     ctx.drawImage(video, 0, 0, width, height);
 
-    // Return high quality JPEG
-    return canvas.toDataURL('image/jpeg', 0.92);
+    // Good quality JPEG (~0.82) – small enough for mobile networks
+    return canvas.toDataURL('image/jpeg', 0.82);
   }, [facingMode]);
 
   // Mount effect to start camera right away

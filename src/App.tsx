@@ -21,6 +21,7 @@ import {
 } from './components/TranslationResult';
 import { SamplePhotosPicker } from './components/SamplePhotosPicker';
 import { SettingsModal } from './components/SettingsModal';
+import { compressDataUrl } from './utils/compressImage';
 
 export default function App() {
   const {
@@ -36,7 +37,18 @@ export default function App() {
     retryCamera,
   } = useCamera();
 
-  const { apiKey, setApiKey, hasApiKey, provider, setProvider } = useAppSettings();
+  const {
+    apiKey,
+    setApiKey,
+    hasApiKey,
+    hasAnyKey,
+    cfAccountId,
+    setCfAccountId,
+    cfApiToken,
+    setCfApiToken,
+    provider,
+    setProvider,
+  } = useAppSettings();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -51,30 +63,51 @@ export default function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'credits'>('api');
   const [shutterFlash, setShutterFlash] = useState(false);
 
-  // Send image to translation endpoint with user API key header
+  // Compress (if needed) then send image to translation endpoint
   const processImageForTranslation = async (base64Img: string, targetLang: string) => {
-    setCapturedImage(base64Img);
     setIsTranslating(true);
     setTranslationError(null);
     setTranslationData(null);
 
     try {
+      // Client-side resize + compress (max 1280px, JPEG ~0.82)
+      // Camera captures are already resized; gallery photos can be 5–12 MB
+      const compressed = await compressDataUrl(base64Img, {
+        maxSize: 1280,
+        quality: 0.82,
+        mimeType: 'image/jpeg',
+      });
+
+      setCapturedImage(compressed);
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
 
-      // Send user's API key securely via HTTPS request header
+      // Gemini key
       if (apiKey) {
         headers['x-gemini-api-key'] = apiKey;
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
+      // Cloudflare Workers AI credentials
+      if (cfAccountId) {
+        headers['x-cf-account-id'] = cfAccountId;
+      }
+      if (cfApiToken) {
+        headers['x-cf-api-token'] = cfApiToken;
+      }
+
+      // Preferred provider / cascade strategy
+      headers['x-ai-provider'] = provider || 'auto';
+
       const response = await fetch('/api/translate-photo', {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          image: base64Img,
+          image: compressed,
           targetLanguage: targetLang,
+          provider: provider || 'auto',
         }),
       });
 
@@ -83,7 +116,7 @@ export default function App() {
       if (!response.ok || !result.success) {
         if (result.requiresApiKey) {
           throw new Error(
-            'Debes configurar tu GEMINI API KEY en Ajustes (icono ⚙️) para poder traducir.'
+            'Debes configurar al menos una clave de API (Gemini o Cloudflare) en Ajustes (icono ⚙️).'
           );
         }
         throw new Error(result.error || 'Error al procesar la traducción de la imagen.');
@@ -123,10 +156,17 @@ export default function App() {
     }
   };
 
-  // Upload photo from device gallery
+  // Upload photo from device gallery (will be compressed client-side)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Optional: reject non-images early
+    if (!file.type.startsWith('image/')) {
+      setTranslationError('Por favor selecciona un archivo de imagen válido.');
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -134,6 +174,9 @@ export default function App() {
       if (base64) {
         processImageForTranslation(base64, targetLanguage);
       }
+    };
+    reader.onerror = () => {
+      setTranslationError('No se pudo leer el archivo seleccionado.');
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -201,7 +244,7 @@ export default function App() {
             title="Ajustes y Créditos"
           >
             <Settings className="w-4 h-4" />
-            {!hasApiKey && (
+            {!hasAnyKey && (
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-slate-900 animate-pulse" />
             )}
           </button>
@@ -265,7 +308,7 @@ export default function App() {
         {isStreaming && !cameraError && (
           <div className="absolute inset-x-8 inset-y-24 pointer-events-none flex flex-col items-center justify-between">
             {/* Top guide banner or missing API key banner */}
-            {!hasApiKey ? (
+            {!hasAnyKey ? (
               <button
                 onClick={() => openSettings('api')}
                 className="pointer-events-auto px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-xl transition active:scale-95 animate-bounce"
@@ -409,6 +452,10 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         apiKey={apiKey}
         onSaveApiKey={setApiKey}
+        cfAccountId={cfAccountId}
+        onSaveCfAccountId={setCfAccountId}
+        cfApiToken={cfApiToken}
+        onSaveCfApiToken={setCfApiToken}
         provider={provider}
         onSaveProvider={setProvider}
         initialTab={settingsInitialTab}

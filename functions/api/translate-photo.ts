@@ -1,21 +1,19 @@
 interface Env {
-  // No longer used as fallback. Users must supply their own key.
-  // Kept only for type compatibility / future use.
   GEMINI_API_KEY?: string;
 }
 
 interface RequestBody {
   image?: string;
   targetLanguage?: string;
+  provider?: string;
 }
 
+type ProviderStrategy = 'auto' | 'gemini' | 'cloudflare' | 'cloudflare_first';
+
 // ---------------------------------------------------------------------------
-// Simple in-memory rate limiter (per isolate).
-// Works reasonably well on Cloudflare Pages Functions for basic protection.
-// For production-grade limits use Cloudflare Rate Limiting rules in the dashboard
-// (Security → WAF → Rate limiting rules) in addition to this.
+// Rate limiting
 // ---------------------------------------------------------------------------
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_IP = 12;
 const MAX_REQUESTS_PER_KEY = 20;
 
@@ -30,16 +28,12 @@ function isRateLimited(map: Map<string, RateEntry>, id: string, max: number): bo
     entry = { timestamps: [] };
     map.set(id, entry);
   }
-  // Drop old timestamps
   entry.timestamps = entry.timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-  if (entry.timestamps.length >= max) {
-    return true;
-  }
+  if (entry.timestamps.length >= max) return true;
   entry.timestamps.push(now);
   return false;
 }
 
-// Periodically clean maps to avoid unbounded growth (best-effort)
 let lastCleanup = Date.now();
 function maybeCleanup() {
   const now = Date.now();
@@ -55,7 +49,7 @@ function maybeCleanup() {
   }
 }
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB decoded
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const ALLOWED_ORIGINS = [
   'https://traducefoto.pages.dev',
@@ -70,16 +64,12 @@ function corsHeaders(origin: string | null): Record<string, string> {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers':
-      'Content-Type, Authorization, x-gemini-api-key',
+      'Content-Type, Authorization, x-gemini-api-key, x-cf-account-id, x-cf-api-token, x-ai-provider',
     'Access-Control-Max-Age': '86400',
   };
 }
 
-function jsonResponse(
-  body: unknown,
-  status: number,
-  origin: string | null
-): Response {
+function jsonResponse(body: unknown, status: number, origin: string | null): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -93,12 +83,267 @@ export const onRequestOptions = async (context: {
   request: Request;
 }): Promise<Response> => {
   const origin = context.request.headers.get('Origin');
-  return new Response(null, {
-    status: 204,
-    headers: corsHeaders(origin),
-  });
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
 };
 
+// ---------------------------------------------------------------------------
+// Gemini helper
+// ---------------------------------------------------------------------------
+async function callGemini(
+  apiKey: string,
+  mimeType: string,
+  base64Data: string,
+  safeTargetLanguage: string
+): Promise<{ data: any; provider: string }> {
+  const promptText = `
+Eres un asistente experto en reconocimiento óptico de caracteres (OCR) y traducción multilingüe inmediata para una aplicación móvil.
+Analiza detenidamente la imagen capturada por la cámara del usuario:
+1. Identifica y extrae con alta precisión TODO el texto visible (letreros, menús, etiquetas, pantallas, documentos, envases, notas manuscritas o impresas).
+2. Detecta automáticamente el idioma de origen del texto.
+3. Traduce fielmente y de manera natural todo el texto extraído al idioma objetivo: "${safeTargetLanguage}".
+   - Si el texto original ya está en el idioma objetivo ("${safeTargetLanguage}"), indícalo claramente y mantén la transcripción original limpia.
+4. Si la imagen NO contiene texto legible ni discernible, establece hasText en falso y proporciona un mensaje claro y amable invitando a enfocar de más cerca.
+5. Devuelve la respuesta estrictamente en el formato JSON estructurado especificado.
+`;
+
+  const requestPayload = {
+    contents: [
+      {
+        parts: [
+          { inlineData: { mimeType, data: base64Data } },
+          { text: promptText },
+        ],
+      },
+    ],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          hasText: { type: 'BOOLEAN' },
+          detectedLanguage: { type: 'STRING' },
+          detectedLanguageCode: { type: 'STRING' },
+          originalText: { type: 'STRING' },
+          translatedText: { type: 'STRING' },
+          targetLanguage: { type: 'STRING' },
+          confidence: { type: 'STRING' },
+          summary: { type: 'STRING' },
+        },
+        required: [
+          'hasText',
+          'detectedLanguage',
+          'originalText',
+          'translatedText',
+          'targetLanguage',
+        ],
+      },
+    },
+  };
+
+  const candidateModels = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-flash-latest',
+  ];
+
+  let lastError: string | null = null;
+  let responseText: string | undefined;
+
+  for (const model of candidateModels) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'FotoTraductor/1.0',
+            },
+            body: JSON.stringify(requestPayload),
+          }
+        );
+
+        if (!geminiRes.ok) {
+          const errBody = await geminiRes.text();
+          lastError = `Status ${geminiRes.status}: ${errBody}`;
+          if (geminiRes.status === 503 || geminiRes.status === 429) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          break;
+        }
+
+        const geminiJson: any = await geminiRes.json();
+        responseText = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (responseText) break;
+      } catch (err: any) {
+        lastError = err?.message || String(err);
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+    if (responseText) break;
+  }
+
+  if (!responseText) {
+    if (lastError?.includes('API key not valid') || lastError?.includes('API_KEY_INVALID')) {
+      throw new Error('La clave de API de Gemini no es válida.');
+    }
+    if (lastError?.includes('429')) {
+      throw new Error('Cuota de Gemini agotada o rate limit. Prueba Cloudflare o espera.');
+    }
+    if (lastError?.includes('503')) {
+      throw new Error('Servidores de Gemini con alta demanda. Reintenta en unos segundos.');
+    }
+    throw new Error(lastError || 'Gemini no devolvió respuesta.');
+  }
+
+  const parsed = JSON.parse(responseText);
+  return { data: parsed, provider: 'gemini' };
+}
+
+// ---------------------------------------------------------------------------
+// Cloudflare Workers AI helper (vision models)
+// ---------------------------------------------------------------------------
+async function callCloudflareWorkersAI(
+  accountId: string,
+  apiToken: string,
+  base64Data: string,
+  safeTargetLanguage: string
+): Promise<{ data: any; provider: string }> {
+  const prompt = `You are an expert OCR and translation assistant.
+Extract ALL visible text from this image with high accuracy.
+Detect the source language.
+Translate the text naturally into: ${safeTargetLanguage}.
+If the text is already in ${safeTargetLanguage}, keep it clean.
+If there is no readable text, say so clearly.
+
+Respond ONLY with valid JSON in this exact shape:
+{
+  "hasText": boolean,
+  "detectedLanguage": "language name in Spanish",
+  "detectedLanguageCode": "iso2",
+  "originalText": "full original transcription",
+  "translatedText": "full translation",
+  "targetLanguage": "${safeTargetLanguage}",
+  "confidence": "alta|media|baja",
+  "summary": "short summary"
+}`;
+
+  // Prefer Llama 3.2 Vision, fallback to Llava
+  const models = [
+    '@cf/meta/llama-3.2-11b-vision-instruct',
+    '@cf/llava-hf/llava-1.5-7b-hf',
+  ];
+
+  let lastError: string | null = null;
+
+  for (const model of models) {
+    try {
+      const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+
+      let body: any;
+      if (model.includes('llama-3.2')) {
+        // Chat-style vision
+        body = {
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${base64Data}` },
+                },
+              ],
+            },
+          ],
+          max_tokens: 2048,
+        };
+      } else {
+        // Llava classic: image as byte array + prompt
+        // Convert base64 → array of numbers (0-255)
+        const binary = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+        body = {
+          image: Array.from(binary),
+          prompt,
+          max_tokens: 1024,
+        };
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = `CF ${model} ${res.status}: ${errText.slice(0, 300)}`;
+        continue;
+      }
+
+      const json: any = await res.json();
+
+      // Normalize different response shapes
+      let text: string | undefined =
+        json?.result?.response ||
+        json?.result?.description ||
+        json?.result?.text ||
+        (typeof json?.result === 'string' ? json.result : undefined);
+
+      // Some chat models return choices
+      if (!text && json?.result?.choices?.[0]?.message?.content) {
+        text = json.result.choices[0].message.content;
+      }
+
+      if (!text) {
+        lastError = `CF ${model}: empty response`;
+        continue;
+      }
+
+      // Try to extract JSON from the model output
+      let parsed: any;
+      try {
+        const match = text.match(/\{[\s\S]*\}/);
+        parsed = JSON.parse(match ? match[0] : text);
+      } catch {
+        // Fallback: treat whole text as translation
+        parsed = {
+          hasText: true,
+          detectedLanguage: 'Desconocido',
+          detectedLanguageCode: 'und',
+          originalText: text,
+          translatedText: text,
+          targetLanguage: safeTargetLanguage,
+          confidence: 'media',
+          summary: text.slice(0, 80),
+        };
+      }
+
+      // Ensure required fields
+      parsed.hasText = Boolean(parsed.hasText ?? true);
+      parsed.detectedLanguage = parsed.detectedLanguage || 'Desconocido';
+      parsed.originalText = parsed.originalText || '';
+      parsed.translatedText = parsed.translatedText || parsed.originalText || '';
+      parsed.targetLanguage = parsed.targetLanguage || safeTargetLanguage;
+
+      return { data: parsed, provider: 'cloudflare' };
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+    }
+  }
+
+  throw new Error(lastError || 'Cloudflare Workers AI no devolvió respuesta.');
+}
+
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
 export const onRequestPost = async (context: {
   request: Request;
   env: Env;
@@ -106,9 +351,6 @@ export const onRequestPost = async (context: {
   const { request } = context;
   const origin = request.headers.get('Origin');
 
-  // ------------------------------------------------------------------
-  // 1. Rate limiting by IP
-  // ------------------------------------------------------------------
   maybeCleanup();
   const clientIp =
     request.headers.get('cf-connecting-ip') ||
@@ -119,44 +361,47 @@ export const onRequestPost = async (context: {
     return jsonResponse(
       {
         success: false,
-        error:
-          'Demasiadas solicitudes desde tu IP. Espera un minuto e inténtalo de nuevo.',
+        error: 'Demasiadas solicitudes desde tu IP. Espera un minuto e inténtalo de nuevo.',
       },
       429,
       origin
     );
   }
 
-  // ------------------------------------------------------------------
-  // 2. Require client-provided API key (NO server-side fallback)
-  // ------------------------------------------------------------------
-  const apiKey =
+  // Credentials from headers
+  const geminiKey =
     request.headers.get('x-gemini-api-key')?.trim() ||
     request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ||
     '';
+  const cfAccountId = request.headers.get('x-cf-account-id')?.trim() || '';
+  const cfApiToken = request.headers.get('x-cf-api-token')?.trim() || '';
+  const providerHeader = (request.headers.get('x-ai-provider') || 'auto').toLowerCase();
 
-  if (!apiKey) {
+  const hasGemini = Boolean(geminiKey);
+  const hasCf = Boolean(cfAccountId && cfApiToken);
+
+  if (!hasGemini && !hasCf) {
     return jsonResponse(
       {
         success: false,
         requiresApiKey: true,
         error:
-          'No se ha configurado ninguna clave de API. Por favor, pulsa en Ajustes (icono ⚙️) e introduce tu GEMINI API KEY.',
+          'No se ha configurado ninguna clave de API. Configura Gemini y/o Cloudflare Workers AI en Ajustes (⚙️).',
       },
       401,
       origin
     );
   }
 
-  // Rate limit also by API key (prevents a single key from being abused)
-  // Use a short hash of the key so we don't store full keys in memory
-  const keyId = apiKey.slice(0, 12) + '…' + apiKey.slice(-4);
-  if (isRateLimited(keyRateMap, keyId, MAX_REQUESTS_PER_KEY)) {
+  // Rate limit by whatever key we have
+  const rateKey = geminiKey
+    ? geminiKey.slice(0, 12) + '…' + geminiKey.slice(-4)
+    : cfApiToken.slice(0, 12) + '…' + cfApiToken.slice(-4);
+  if (isRateLimited(keyRateMap, rateKey, MAX_REQUESTS_PER_KEY)) {
     return jsonResponse(
       {
         success: false,
-        error:
-          'Has alcanzado el límite de solicitudes para esta clave de API. Espera un minuto.',
+        error: 'Has alcanzado el límite de solicitudes para esta clave. Espera un minuto.',
       },
       429,
       origin
@@ -166,34 +411,25 @@ export const onRequestPost = async (context: {
   try {
     const body = (await request.json()) as RequestBody;
     const { image, targetLanguage = 'Español' } = body;
+    const strategy = (body.provider || providerHeader || 'auto') as ProviderStrategy;
 
     if (!image || typeof image !== 'string') {
       return jsonResponse(
-        {
-          success: false,
-          error: 'No se ha proporcionado ninguna imagen para procesar.',
-        },
+        { success: false, error: 'No se ha proporcionado ninguna imagen para procesar.' },
         400,
         origin
       );
     }
 
-    // ------------------------------------------------------------------
-    // 3. Strict size limit (8 MB decoded)
-    // ------------------------------------------------------------------
     let mimeType = 'image/jpeg';
     let base64Data = image;
-
     if (image.includes(';base64,')) {
       const parts = image.split(';base64,');
       const mimeMatch = parts[0].match(/data:(.*?)$/);
-      if (mimeMatch && mimeMatch[1]) {
-        mimeType = mimeMatch[1];
-      }
+      if (mimeMatch?.[1]) mimeType = mimeMatch[1];
       base64Data = parts[1];
     }
 
-    // Approximate decoded size: base64 length * 3/4
     const estimatedBytes = Math.floor((base64Data.length * 3) / 4);
     if (estimatedBytes > MAX_IMAGE_BYTES) {
       return jsonResponse(
@@ -206,189 +442,85 @@ export const onRequestPost = async (context: {
       );
     }
 
-    // Optional: reject non-image mime types
     if (!mimeType.startsWith('image/')) {
       return jsonResponse(
-        {
-          success: false,
-          error: 'El archivo enviado no es una imagen válida.',
-        },
+        { success: false, error: 'El archivo enviado no es una imagen válida.' },
         400,
         origin
       );
     }
 
-    // Basic sanitisation of targetLanguage (prevent prompt injection)
-    const safeTargetLanguage = String(targetLanguage)
-      .slice(0, 60)
-      .replace(/[^\p{L}\p{N}\s\-]/gu, '')
-      .trim() || 'Español';
+    const safeTargetLanguage =
+      String(targetLanguage)
+        .slice(0, 60)
+        .replace(/[^\p{L}\p{N}\s\-]/gu, '')
+        .trim() || 'Español';
 
-    const promptText = `
-Eres un asistente experto en reconocimiento óptico de caracteres (OCR) y traducción multilingüe inmediata para una aplicación móvil.
-Analiza detenidamente la imagen capturada por la cámara del usuario:
-1. Identifica y extrae con alta precisión TODO el texto visible (letreros, menús, etiquetas, pantallas, documentos, envases, notas manuscritas o impresas).
-2. Detecta automáticamente el idioma de origen del texto.
-3. Traduce fielmente y de manera natural todo el texto extraído al idioma objetivo: "${safeTargetLanguage}".
-   - Si el texto original ya está en el idioma objetivo ("${safeTargetLanguage}"), indícalo claramente y mantén la transcripción original limpia.
-4. Si la imagen NO contiene texto legible ni discernible, establece hasText en falso y proporciona un mensaje claro y amable invitando a enfocar de más cerca.
-5. Devuelve la respuesta estrictamente en el formato JSON estructurado especificado.
-`;
+    // Build ordered list of providers to try
+    const tryOrder: ('gemini' | 'cloudflare')[] = [];
+    if (strategy === 'gemini') {
+      if (hasGemini) tryOrder.push('gemini');
+    } else if (strategy === 'cloudflare') {
+      if (hasCf) tryOrder.push('cloudflare');
+    } else if (strategy === 'cloudflare_first') {
+      if (hasCf) tryOrder.push('cloudflare');
+      if (hasGemini) tryOrder.push('gemini');
+    } else {
+      // auto
+      if (hasGemini) tryOrder.push('gemini');
+      if (hasCf) tryOrder.push('cloudflare');
+    }
 
-    const requestPayload = {
-      contents: [
+    if (tryOrder.length === 0) {
+      return jsonResponse(
         {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: base64Data,
-              },
-            },
-            {
-              text: promptText,
-            },
-          ],
+          success: false,
+          requiresApiKey: true,
+          error:
+            'La estrategia elegida requiere claves que no están configuradas. Revisa Ajustes.',
         },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            hasText: {
-              type: 'BOOLEAN',
-              description:
-                'Verdadero si hay texto legible en la imagen, falso si no hay texto.',
-            },
-            detectedLanguage: {
-              type: 'STRING',
-              description:
-                'Nombre del idioma detectado en español (ej. Inglés, Francés, Alemán, Japonés, Italiano, Ruso, etc.).',
-            },
-            detectedLanguageCode: {
-              type: 'STRING',
-              description:
-                'Código ISO de 2 letras del idioma detectado (ej. en, fr, de, ja, es).',
-            },
-            originalText: {
-              type: 'STRING',
-              description:
-                'Transcripción completa del texto original encontrado en la foto.',
-            },
-            translatedText: {
-              type: 'STRING',
-              description:
-                'Traducción completa, fluida y natural al idioma destino.',
-            },
-            targetLanguage: {
-              type: 'STRING',
-              description: 'Idioma de destino solicitado (ej. Español).',
-            },
-            confidence: {
-              type: 'STRING',
-              description:
-                'Nivel de confianza de la detección: alta, media, o baja.',
-            },
-            summary: {
-              type: 'STRING',
-              description:
-                'Breve frase resumen o título explicativo del texto traducido para lectura rápida.',
-            },
-          },
-          required: [
-            'hasText',
-            'detectedLanguage',
-            'originalText',
-            'translatedText',
-            'targetLanguage',
-          ],
-        },
-      },
-    };
+        401,
+        origin
+      );
+    }
 
-    const candidateModels = [
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      'gemini-1.5-flash',
-      'gemini-flash-latest',
-    ];
-    let lastError: string | null = null;
-    let responseText: string | undefined;
+    const errors: string[] = [];
+    let result: { data: any; provider: string } | null = null;
 
-    for (const model of candidateModels) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'FotoTraductor/1.0',
-              },
-              body: JSON.stringify(requestPayload),
-            }
+    for (const p of tryOrder) {
+      try {
+        if (p === 'gemini') {
+          result = await callGemini(geminiKey, mimeType, base64Data, safeTargetLanguage);
+        } else {
+          result = await callCloudflareWorkersAI(
+            cfAccountId,
+            cfApiToken,
+            base64Data,
+            safeTargetLanguage
           );
-
-          if (!geminiRes.ok) {
-            const errBody = await geminiRes.text();
-            lastError = `Status ${geminiRes.status}: ${errBody}`;
-            if (geminiRes.status === 503 || geminiRes.status === 429) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, 1000 * (attempt + 1))
-              );
-              continue;
-            } else {
-              break;
-            }
-          }
-
-          const geminiJson: any = await geminiRes.json();
-          const candidate = geminiJson.candidates?.[0];
-          responseText = candidate?.content?.parts?.[0]?.text;
-
-          if (responseText) {
-            break;
-          }
-        } catch (err: any) {
-          lastError = err?.message || String(err);
-          await new Promise((resolve) => setTimeout(resolve, 800));
         }
-      }
-
-      if (responseText) {
-        break;
+        break; // success
+      } catch (err: any) {
+        errors.push(`${p}: ${err?.message || err}`);
       }
     }
 
-    if (!responseText) {
-      if (lastError && lastError.includes('503')) {
-        throw new Error(
-          'Los servidores de Google AI tienen alta demanda en este momento. Por favor, pulsa en Reintentar en unos segundos.'
-        );
-      }
-      // Do not leak full Gemini error details to the client
-      const friendly =
-        lastError && lastError.includes('API key not valid')
-          ? 'La clave de API de Gemini no es válida. Revisa tu clave en Ajustes.'
-          : lastError && lastError.includes('429')
-            ? 'Has excedido el límite de la API de Gemini. Espera un momento.'
-            : 'No se pudo obtener una respuesta del modelo. Inténtalo de nuevo.';
-      throw new Error(friendly);
-    }
-
-    let parsedData: any;
-    try {
-      parsedData = JSON.parse(responseText);
-    } catch {
-      throw new Error('Respuesta del modelo en formato inesperado.');
+    if (!result) {
+      return jsonResponse(
+        {
+          success: false,
+          error: `No se pudo traducir con ningún proveedor. ${errors.join(' | ')}`,
+        },
+        500,
+        origin
+      );
     }
 
     return jsonResponse(
       {
         success: true,
-        data: parsedData,
+        data: result.data,
+        providerUsed: result.provider,
       },
       200,
       origin
