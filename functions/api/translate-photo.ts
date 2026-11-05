@@ -212,66 +212,92 @@ async function callCloudflareWorkersAI(
   base64Data: string,
   safeTargetLanguage: string
 ): Promise<{ data: any; provider: string }> {
-  const prompt = `You are an expert OCR and translation assistant.
-Extract ALL visible text from this image with high accuracy.
-Detect the source language.
-Translate the text naturally into: ${safeTargetLanguage}.
-If the text is already in ${safeTargetLanguage}, keep it clean.
-If there is no readable text, say so clearly.
+  // Strong OCR + translation prompt. Models on Workers AI are weaker than Gemini
+  // at multilingual OCR, so we are very explicit.
+  const prompt = `TASK: Optical Character Recognition (OCR) and translation.
 
-Respond ONLY with valid JSON in this exact shape:
+Look carefully at the image. Extract EVERY piece of readable text you can see:
+- Titles, headings, body paragraphs
+- Addresses, phone numbers, opening hours
+- Menu items, labels, buttons, links
+- Any other printed or digital text
+
+Rules:
+1. Transcribe the original text EXACTLY as written (preserve original language and spelling).
+2. Detect the source language (e.g. Polish, English, German, Spanish…).
+3. Translate the full text into: ${safeTargetLanguage}.
+4. If there is truly no readable text, set hasText to false.
+
+Respond with ONLY a valid JSON object, no markdown, no explanation:
 {
-  "hasText": boolean,
-  "detectedLanguage": "language name in Spanish",
-  "detectedLanguageCode": "iso2",
-  "originalText": "full original transcription",
-  "translatedText": "full translation",
+  "hasText": true,
+  "detectedLanguage": "Polaco",
+  "detectedLanguageCode": "pl",
+  "originalText": "full original text here",
+  "translatedText": "full translation into ${safeTargetLanguage}",
   "targetLanguage": "${safeTargetLanguage}",
-  "confidence": "alta|media|baja",
-  "summary": "short summary"
+  "confidence": "alta",
+  "summary": "short one-line summary"
 }`;
 
-  // Prefer Llama 3.2 Vision, fallback to Llava
-  const models = [
-    '@cf/meta/llama-3.2-11b-vision-instruct',
-    '@cf/llava-hf/llava-1.5-7b-hf',
+  // Convert base64 → byte array (most reliable input for CF vision models)
+  let imageBytes: number[];
+  try {
+    const binary = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+    imageBytes = Array.from(binary);
+  } catch {
+    throw new Error('No se pudo decodificar la imagen en base64 para Cloudflare.');
+  }
+
+  // Try multiple models / payload shapes
+  const attempts: { model: string; body: any }[] = [
+    // Llama 3.2 Vision – prompt + image bytes (documented working shape)
+    {
+      model: '@cf/meta/llama-3.2-11b-vision-instruct',
+      body: {
+        prompt,
+        image: imageBytes,
+        max_tokens: 2048,
+        temperature: 0.1,
+      },
+    },
+    // Llama 3.2 Vision – messages style with data URI
+    {
+      model: '@cf/meta/llama-3.2-11b-vision-instruct',
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64Data}`,
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 2048,
+      },
+    },
+    // Llava classic
+    {
+      model: '@cf/llava-hf/llava-1.5-7b-hf',
+      body: {
+        prompt,
+        image: imageBytes,
+        max_tokens: 1024,
+      },
+    },
   ];
 
   let lastError: string | null = null;
 
-  for (const model of models) {
+  for (const { model, body } of attempts) {
     try {
       const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-
-      let body: any;
-      if (model.includes('llama-3.2')) {
-        // Chat-style vision
-        body = {
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: prompt },
-                {
-                  type: 'image_url',
-                  image_url: { url: `data:image/jpeg;base64,${base64Data}` },
-                },
-              ],
-            },
-          ],
-          max_tokens: 2048,
-        };
-      } else {
-        // Llava classic: image as byte array + prompt
-        // Convert base64 → array of numbers (0-255)
-        const binary = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-        body = {
-          image: Array.from(binary),
-          prompt,
-          max_tokens: 1024,
-        };
-      }
-
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -283,54 +309,75 @@ Respond ONLY with valid JSON in this exact shape:
 
       if (!res.ok) {
         const errText = await res.text();
-        lastError = `CF ${model} ${res.status}: ${errText.slice(0, 300)}`;
+        lastError = `CF ${model} HTTP ${res.status}: ${errText.slice(0, 280)}`;
         continue;
       }
 
       const json: any = await res.json();
 
-      // Normalize different response shapes
+      // Collect possible text fields from different response shapes
       let text: string | undefined =
+        (typeof json?.result === 'string' ? json.result : undefined) ||
         json?.result?.response ||
         json?.result?.description ||
         json?.result?.text ||
-        (typeof json?.result === 'string' ? json.result : undefined);
+        json?.result?.choices?.[0]?.message?.content ||
+        json?.result?.choices?.[0]?.text;
 
-      // Some chat models return choices
-      if (!text && json?.result?.choices?.[0]?.message?.content) {
-        text = json.result.choices[0].message.content;
-      }
-
-      if (!text) {
-        lastError = `CF ${model}: empty response`;
+      if (!text || typeof text !== 'string' || text.trim().length < 5) {
+        lastError = `CF ${model}: respuesta vacía o demasiado corta`;
         continue;
       }
 
-      // Try to extract JSON from the model output
+      // Extract JSON object from model output
       let parsed: any;
       try {
         const match = text.match(/\{[\s\S]*\}/);
-        parsed = JSON.parse(match ? match[0] : text);
+        if (match) {
+          parsed = JSON.parse(match[0]);
+        } else {
+          throw new Error('no JSON object found');
+        }
       } catch {
-        // Fallback: treat whole text as translation
+        // Fallback: treat entire output as original + translated text
         parsed = {
           hasText: true,
           detectedLanguage: 'Desconocido',
           detectedLanguageCode: 'und',
-          originalText: text,
-          translatedText: text,
+          originalText: text.trim(),
+          translatedText: text.trim(),
           targetLanguage: safeTargetLanguage,
-          confidence: 'media',
-          summary: text.slice(0, 80),
+          confidence: 'baja',
+          summary: text.trim().slice(0, 100),
         };
       }
 
-      // Ensure required fields
-      parsed.hasText = Boolean(parsed.hasText ?? true);
-      parsed.detectedLanguage = parsed.detectedLanguage || 'Desconocido';
-      parsed.originalText = parsed.originalText || '';
-      parsed.translatedText = parsed.translatedText || parsed.originalText || '';
-      parsed.targetLanguage = parsed.targetLanguage || safeTargetLanguage;
+      // Normalize / fill required fields
+      if (typeof parsed.hasText !== 'boolean') {
+        parsed.hasText = Boolean(
+          (parsed.originalText && String(parsed.originalText).trim()) ||
+            (parsed.translatedText && String(parsed.translatedText).trim())
+        );
+      }
+      parsed.detectedLanguage = String(parsed.detectedLanguage || 'Desconocido');
+      parsed.detectedLanguageCode = String(parsed.detectedLanguageCode || 'und');
+      parsed.originalText = String(parsed.originalText || '').trim();
+      parsed.translatedText = String(
+        parsed.translatedText || parsed.originalText || ''
+      ).trim();
+      parsed.targetLanguage = String(parsed.targetLanguage || safeTargetLanguage);
+      parsed.confidence = String(parsed.confidence || 'media');
+      parsed.summary = String(parsed.summary || parsed.translatedText.slice(0, 80));
+
+      // Reject obviously useless results (e.g. only a few characters)
+      if (
+        parsed.hasText &&
+        parsed.originalText.length < 8 &&
+        parsed.translatedText.length < 8
+      ) {
+        lastError = `CF ${model}: texto extraído demasiado corto`;
+        continue;
+      }
 
       return { data: parsed, provider: 'cloudflare' };
     } catch (err: any) {
@@ -338,7 +385,10 @@ Respond ONLY with valid JSON in this exact shape:
     }
   }
 
-  throw new Error(lastError || 'Cloudflare Workers AI no devolvió respuesta.');
+  throw new Error(
+    lastError ||
+      'Cloudflare Workers AI no pudo extraer texto útil de la imagen. Prueba con Gemini para mejor OCR multilingüe.'
+  );
 }
 
 // ---------------------------------------------------------------------------
