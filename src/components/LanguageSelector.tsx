@@ -13,6 +13,29 @@ export const POPULAR_TARGET_LANGUAGES = [
   { code: 'eu', name: 'Euskara', flag: '🏴' },
 ];
 
+// Locales BCP-47 para la síntesis de voz (speechSynthesis)
+const SPEECH_LOCALES: Record<string, string> = {
+  es: 'es-ES',
+  en: 'en-GB',
+  fr: 'fr-FR',
+  de: 'de-DE',
+  it: 'it-IT',
+  pt: 'pt-PT',
+  ca: 'ca-ES',
+  gl: 'gl-ES',
+  eu: 'eu-ES',
+};
+
+/** Devuelve el locale de voz para un idioma (por nombre o por código), o undefined si se desconoce. */
+export function getSpeechLocale(language?: string): string | undefined {
+  if (!language) return undefined;
+  const needle = language.trim().toLowerCase();
+  const match = POPULAR_TARGET_LANGUAGES.find(
+    (l) => l.name.toLowerCase() === needle || l.code === needle
+  );
+  return match ? SPEECH_LOCALES[match.code] : undefined;
+}
+
 interface LanguageSelectorProps {
   currentLanguage: string;
   onSelectLanguage: (lang: string) => void;

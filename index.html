@@ -2,23 +2,6 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      // Suppress Vite HMR WebSocket connection errors in environments where HMR is disabled
-      window.addEventListener('error', function(e) {
-        if (e && e.message && (e.message.includes('WebSocket') || e.message.includes('ws://') || e.message.includes('wss://'))) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      }, true);
-      window.addEventListener('unhandledrejection', function(e) {
-        var reason = e && e.reason ? (e.reason.message || String(e.reason)) : '';
-        if (reason && (reason.includes('WebSocket') || reason.includes('ws://') || reason.includes('wss://'))) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      }, true);
-    </script>
-
     <!-- Primary Meta Tags -->
     <title>FotoTraductor – Traduce texto de fotos al instante con la cámara</title>
     <meta name="title" content="FotoTraductor – Traduce texto de fotos al instante con la cámara" />
@@ -187,16 +170,24 @@
     }
     </script>
 
-    <!-- Analytics / Dashboard tracker (Aitor Hub) -->
-    <script
-      src="https://aitors-hub-dashboard.asanchezgu.workers.dev/tracker.js"
-      data-app="traducefoto"
-      data-key="ak_c1ba79eb57a34b0a827e6ca1c0ce51f5"
-      async
-    ></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!--
+      Analítica (Aitor Hub) aislada: iframe con sandbox SIN allow-same-origin.
+      El tracker corre en un origen opaco y no puede acceder a la API key
+      guardada en localStorage. Ver public/analytics-frame.html.
+    -->
+    <iframe
+      src="/analytics-frame.html"
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+      title="analytics"
+      aria-hidden="true"
+      tabindex="-1"
+      hidden
+    ></iframe>
   </body>
 </html>

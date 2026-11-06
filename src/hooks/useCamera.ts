@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { prepareImageFromVideo, type PreparedImage } from '../utils/imageProcessing';
 
 export type CameraFacingMode = 'environment' | 'user';
 
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Identifica el último arranque pedido: si se pide parar/arrancar mientras
+  // getUserMedia sigue pendiente, el resultado "viejo" se descarta y se libera.
+  const startIdRef = useRef(0);
 
   const [facingMode, setFacingMode] = useState<CameraFacingMode>('environment');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -15,6 +19,7 @@ export function useCamera() {
 
   // Stop current active stream
   const stopStream = useCallback(() => {
+    startIdRef.current += 1; // invalida cualquier getUserMedia pendiente
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         try {
@@ -39,6 +44,7 @@ export function useCamera() {
       setIsLoading(true);
       setError(null);
       stopStream();
+      const myStartId = startIdRef.current; // stopStream ya lo incrementó
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setError('Tu navegador o dispositivo no soporta acceso a la cámara.');
@@ -57,6 +63,13 @@ export function useCamera() {
         };
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+        // Si mientras tanto se pidió parar o reiniciar la cámara, este stream sobra:
+        // se apaga para no dejar la cámara (y su luz) encendida sin que nadie la use.
+        if (myStartId !== startIdRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         streamRef.current = stream;
 
         if (videoRef.current) {
@@ -78,6 +91,7 @@ export function useCamera() {
         setIsStreaming(true);
         setIsLoading(false);
       } catch (err: any) {
+        if (myStartId !== startIdRef.current) return; // petición obsoleta
         console.error('Camera access error:', err);
         setIsLoading(false);
 
@@ -119,33 +133,25 @@ export function useCamera() {
     startCamera(nextMode);
   }, [facingMode, startCamera]);
 
-  // Capture current frame from video to base64 JPEG
-  const capturePhoto = useCallback((): string | null => {
-    if (!videoRef.current) return null;
+  // Captura el fotograma actual ya reducido (máx. 1280 px) y comprimido (WebP/JPEG).
+  // Se dibuja directamente a tamaño final: no se crea un canvas 4K intermedio.
+  const capturePhoto = useCallback(async (): Promise<PreparedImage | null> => {
     const video = videoRef.current;
-
-    // Use actual video dimensions
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    // Mirror image if front camera
-    if (facingMode === 'user') {
-      ctx.translate(width, 0);
-      ctx.scale(-1, 1);
-    }
-
-    ctx.drawImage(video, 0, 0, width, height);
-
-    // Return high quality JPEG
-    return canvas.toDataURL('image/jpeg', 0.92);
+    if (!video) return null;
+    return prepareImageFromVideo(video, facingMode === 'user');
   }, [facingMode]);
+
+  // Apaga la cámara (luz de actividad, batería) sin perder el estado de la UI.
+  const pauseCamera = useCallback(() => {
+    stopStream();
+    setIsLoading(false);
+  }, [stopStream]);
+
+  // Reanuda la cámara solo si está parada.
+  const resumeCamera = useCallback(() => {
+    if (streamRef.current) return;
+    startCamera(facingMode);
+  }, [facingMode, startCamera]);
 
   // Mount effect to start camera right away
   useEffect(() => {
@@ -167,6 +173,8 @@ export function useCamera() {
     toggleTorch,
     flipCamera,
     capturePhoto,
+    pauseCamera,
+    resumeCamera,
     retryCamera: () => startCamera(facingMode),
   };
 }

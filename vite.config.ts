@@ -1,14 +1,59 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+// ---------------------------------------------------------------------------
+// Content-Security-Policy de la app (solo en `vite build`; en dev rompería HMR).
+// Va como <meta> y no como cabecera para no mezclarse con la CSP propia de
+// /analytics-frame.html (ver comentario en public/_headers).
+//   - script-src 'self'  -> bloquea cualquier script inline o de terceros en el
+//                           origen de la app (el tracker vive en un iframe sandbox).
+//   - connect-src 'self' -> la app solo puede hablar con su propio /api.
+//   - style-src 'unsafe-inline' hace falta para los atributos style de React/Tailwind.
+// ---------------------------------------------------------------------------
+const APP_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "frame-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ');
+
+function injectCsp(): Plugin {
+  return {
+    name: 'inject-csp-meta',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler() {
+        return [
+          {
+            tag: 'meta',
+            attrs: {'http-equiv': 'Content-Security-Policy', content: APP_CSP},
+            injectTo: 'head-prepend',
+          },
+        ];
+      },
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
     plugins: [
       react(),
       tailwindcss(),
+      injectCsp(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
@@ -46,6 +91,9 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          // La página de analítica no debe precachearse ni recibir el fallback SPA
+          globIgnores: ['analytics-frame.html'],
+          navigateFallbackDenylist: [/^\/api\//, /^\/analytics-frame\.html$/],
         },
         devOptions: {
           enabled: true,

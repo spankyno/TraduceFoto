@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Esta página se carga en un <iframe sandbox="allow-scripts"> (SIN allow-same-origin)
+      desde index.html. El sandbox le da un origen "opaco": el tracker NO puede leer
+      localStorage, cookies ni el DOM de la app (donde vive la API key del usuario).
+
+      Su propia CSP solo permite hablar con el host del tracker.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src https://aitors-hub-dashboard.asanchezgu.workers.dev; connect-src https://aitors-hub-dashboard.asanchezgu.workers.dev; img-src https://aitors-hub-dashboard.asanchezgu.workers.dev data:"
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>analytics</title>
+  </head>
+  <body>
+    <script
+      src="https://aitors-hub-dashboard.asanchezgu.workers.dev/tracker.js"
+      data-app="traducefoto"
+      data-key="ak_c1ba79eb57a34b0a827e6ca1c0ce51f5"
+      async
+    ></script>
+  </body>
+</html>

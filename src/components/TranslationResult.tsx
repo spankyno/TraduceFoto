@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Settings,
 } from 'lucide-react';
+import { LanguageSelector, getSpeechLocale } from './LanguageSelector';
 
 export interface TranslationData {
   hasText: boolean;
@@ -29,6 +30,10 @@ interface TranslationResultProps {
   data: TranslationData | null;
   isLoading: boolean;
   error: string | null;
+  /** Idioma de destino actualmente seleccionado */
+  targetLanguage: string;
+  /** Cambia el idioma de destino y vuelve a traducir (sin reenviar la foto si ya hay texto) */
+  onChangeLanguage: (lang: string) => void;
   onAccept: () => void;
   onRetry: () => void;
   onOpenSettings?: () => void;
@@ -39,6 +44,8 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
   data,
   isLoading,
   error,
+  targetLanguage,
+  onChangeLanguage,
   onAccept,
   onRetry,
   onOpenSettings,
@@ -46,6 +53,19 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
   const [copied, setCopied] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+
+  // La síntesis de voz sigue sonando aunque se desmonte el componente: se corta al salir
+  // y cada vez que cambia la traducción (p. ej. al cambiar de idioma).
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setIsPlayingAudio(false);
+  }, [data?.translatedText]);
 
   // Copy to clipboard
   const handleCopy = async () => {
@@ -71,7 +91,9 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(data.translatedText);
-    utterance.lang = data.targetLanguage.toLowerCase().includes('ing') ? 'en-US' : 'es-ES';
+    // Voz según el idioma real de la traducción (antes solo distinguía inglés/español)
+    const locale = getSpeechLocale(data.targetLanguage) ?? getSpeechLocale(targetLanguage);
+    if (locale) utterance.lang = locale;
     utterance.rate = 0.95;
 
     utterance.onend = () => setIsPlayingAudio(false);
@@ -83,34 +105,40 @@ export const TranslationResult: React.FC<TranslationResultProps> = ({
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-slate-950 text-white overflow-hidden">
-      {/* Background Captured Image (blurred slightly for contrast) */}
-      <div className="relative w-full h-44 sm:h-52 shrink-0 bg-black overflow-hidden">
-        <img
-          src={photoUrl}
-          alt="Foto capturada"
-          className="w-full h-full object-cover opacity-75"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-slate-950" />
+      {/* Captured image header (z-20 para que el desplegable de idioma quede sobre el contenido) */}
+      <div className="relative z-20 w-full h-44 sm:h-52 shrink-0 bg-black">
+        <div className="absolute inset-0 overflow-hidden">
+          <img
+            src={photoUrl}
+            alt="Foto capturada"
+            className="w-full h-full object-cover opacity-75"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-slate-950" />
 
-        {/* Laser scanner animation while loading */}
-        {isLoading && (
-          <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_15px_#22d3ee] animate-laser" />
-        )}
+          {/* Laser scanner animation while loading */}
+          {isLoading && (
+            <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_15px_#22d3ee] animate-laser" />
+          )}
+        </div>
 
-        {/* Top badge over photo */}
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-          <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-medium text-slate-200 border border-white/10 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            {isLoading ? 'Analizando texto...' : 'Foto procesada'}
+        {/* Top row: status badge + language selector + discard */}
+        <div className="absolute top-4 left-4 right-4 flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-medium text-slate-200 border border-white/10 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+            <span className="truncate">{isLoading ? 'Analizando texto...' : 'Foto procesada'}</span>
           </span>
 
-          <button
-            onClick={onRetry}
-            className="p-2 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-slate-300 hover:text-white border border-white/10 transition"
-            title="Descartar y volver"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <LanguageSelector currentLanguage={targetLanguage} onSelectLanguage={onChangeLanguage} />
+            <button
+              onClick={onAccept}
+              className="p-2 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-slate-300 hover:text-white border border-white/10 transition"
+              title="Descartar y volver"
+              aria-label="Descartar y volver"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 

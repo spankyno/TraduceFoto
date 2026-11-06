@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   FlipHorizontal,
@@ -21,6 +21,11 @@ import {
 } from './components/TranslationResult';
 import { SamplePhotosPicker } from './components/SamplePhotosPicker';
 import { SettingsModal } from './components/SettingsModal';
+import {
+  ImageProcessingError,
+  prepareImageFromDataUrl,
+  prepareImageFromFile,
+} from './utils/imageProcessing';
 
 export default function App() {
   const {
@@ -33,6 +38,8 @@ export default function App() {
     toggleTorch,
     flipCamera,
     capturePhoto,
+    pauseCamera,
+    resumeCamera,
     retryCamera,
   } = useCamera();
 
@@ -50,58 +57,161 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'api' | 'credits'>('api');
   const [shutterFlash, setShutterFlash] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Send image to translation endpoint with user API key header
-  const processImageForTranslation = async (base64Img: string, targetLang: string) => {
-    setCapturedImage(base64Img);
+  // Petición en curso: permite cancelarla si llega otra (p. ej. cambio de idioma)
+  const abortRef = useRef<AbortController | null>(null);
+  const hadImageRef = useRef(false);
+
+  const beginRequest = () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return controller;
+  };
+
+  // Cancela cualquier petición pendiente al desmontar
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Aviso temporal (errores al capturar / leer imágenes antes de mostrar el resultado)
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  // Cámara apagada mientras se ve el resultado (luz de actividad y batería);
+  // se reanuda al volver. hadImageRef evita un doble arranque en el montaje.
+  useEffect(() => {
+    if (capturedImage) {
+      hadImageRef.current = true;
+      pauseCamera();
+    } else if (hadImageRef.current) {
+      hadImageRef.current = false;
+      resumeCamera();
+    }
+  }, [capturedImage, pauseCamera, resumeCamera]);
+
+  // Llamada al endpoint. La clave viaja SOLO en la cabecera x-gemini-api-key.
+  const callTranslateApi = async (payload: Record<string, unknown>, signal: AbortSignal) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-gemini-api-key'] = apiKey;
+
+    const response = await fetch('/api/translate-photo', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal,
+    });
+
+    let result: any = null;
+    try {
+      result = await response.json();
+    } catch {
+      // respuesta no JSON (p. ej. 413 del borde de Cloudflare)
+    }
+
+    if (!response.ok || !result?.success) {
+      if (result?.requiresApiKey) {
+        throw new Error(
+          'Debes configurar tu GEMINI API KEY en Ajustes (icono ⚙️) para poder traducir.'
+        );
+      }
+      throw new Error(
+        result?.error ||
+          (response.status === 413
+            ? 'La imagen es demasiado grande.'
+            : 'Error al procesar la traducción de la imagen.')
+      );
+    }
+    return result.data;
+  };
+
+  // Traduce una imagen (ya reducida y comprimida en el cliente)
+  const processImageForTranslation = async (imageDataUrl: string, targetLang: string) => {
+    const controller = beginRequest();
+    setCapturedImage(imageDataUrl);
     setIsTranslating(true);
     setTranslationError(null);
     setTranslationData(null);
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      // Send user's API key securely via HTTPS request header
-      if (apiKey) {
-        headers['x-gemini-api-key'] = apiKey;
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
-
-      const response = await fetch('/api/translate-photo', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          image: base64Img,
-          targetLanguage: targetLang,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        if (result.requiresApiKey) {
-          throw new Error(
-            'Debes configurar tu GEMINI API KEY en Ajustes (icono ⚙️) para poder traducir.'
-          );
-        }
-        throw new Error(result.error || 'Error al procesar la traducción de la imagen.');
-      }
-
-      setTranslationData(result.data);
+      const data = await callTranslateApi(
+        { image: imageDataUrl, targetLanguage: targetLang },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
+      setTranslationData(data);
     } catch (err: any) {
+      if (controller.signal.aborted) return; // sustituida o cancelada: se ignora
       console.error('Translation error:', err);
       setTranslationError(
         err.message || 'Ocurrió un error al contactar el servicio de traducción.'
       );
     } finally {
-      setIsTranslating(false);
+      if (abortRef.current === controller) setIsTranslating(false);
+    }
+  };
+
+  // Re-traduce SOLO el texto ya extraído a otro idioma: no se reenvía la foto
+  // (petición ~1000 veces más ligera, más rápida y más barata en cuota).
+  const retranslateText = async (base: TranslationData, targetLang: string) => {
+    const controller = beginRequest();
+    setIsTranslating(true);
+    setTranslationError(null);
+
+    try {
+      const data = await callTranslateApi(
+        { text: base.originalText, targetLanguage: targetLang },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
+      setTranslationData({
+        ...base,
+        translatedText: data.translatedText,
+        summary: data.summary,
+        targetLanguage: targetLang,
+      });
+    } catch (err: any) {
+      if (controller.signal.aborted) return;
+      console.error('Re-translation error:', err);
+      setTranslationError(
+        err.message || 'Ocurrió un error al contactar el servicio de traducción.'
+      );
+    } finally {
+      if (abortRef.current === controller) setIsTranslating(false);
+    }
+  };
+
+  const canRetranslateText = (d: TranslationData | null): d is TranslationData =>
+    Boolean(d?.hasText && d.originalText);
+
+  // Cambio de idioma desde el selector (también disponible dentro del resultado)
+  const handleLanguageChange = (lang: string) => {
+    if (lang === targetLanguage) return;
+    setTargetLanguage(lang);
+    if (!capturedImage) return;
+    if (canRetranslateText(translationData)) {
+      retranslateText(translationData, lang);
+    } else {
+      processImageForTranslation(capturedImage, lang);
+    }
+  };
+
+  const handleRetry = () => {
+    if (!capturedImage) return;
+    if (!translationError) {
+      handleResetToCamera();
+    } else if (canRetranslateText(translationData)) {
+      retranslateText(translationData, targetLanguage);
+    } else {
+      processImageForTranslation(capturedImage, targetLanguage);
     }
   };
 
   // Capture button clicked
-  const handleCapture = () => {
+  const handleCapture = async () => {
     // Haptic feedback if supported on mobile
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
@@ -115,32 +225,62 @@ export default function App() {
     setShutterFlash(true);
     setTimeout(() => setShutterFlash(false), 200);
 
-    const photo = capturePhoto();
-    if (photo) {
-      processImageForTranslation(photo, targetLanguage);
-    } else {
-      setTranslationError('No se pudo capturar la imagen de la cámara.');
+    setIsPreparing(true);
+    try {
+      const photo = await capturePhoto(); // ya reducida a ≤1280 px y comprimida
+      if (!photo) {
+        setNotice('No se pudo capturar la imagen de la cámara.');
+        return;
+      }
+      processImageForTranslation(photo.dataUrl, targetLanguage);
+    } catch (err) {
+      setNotice(
+        err instanceof ImageProcessingError
+          ? err.message
+          : 'No se pudo capturar la imagen de la cámara.'
+      );
+    } finally {
+      setIsPreparing(false);
     }
   };
 
-  // Upload photo from device gallery
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload photo from device gallery: se redimensiona/comprime ANTES de enviarla
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        processImageForTranslation(base64, targetLanguage);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    setIsPreparing(true);
+    try {
+      const prepared = await prepareImageFromFile(file);
+      processImageForTranslation(prepared.dataUrl, targetLanguage);
+    } catch (err) {
+      setNotice(
+        err instanceof ImageProcessingError ? err.message : 'No se pudo leer la imagen.'
+      );
+    } finally {
+      setIsPreparing(false);
+    }
+  };
+
+  // Fotos de prueba (SVG): se rasterizan a WebP/JPEG; Gemini no admite SVG
+  const handleSampleSelected = async (sampleDataUrl: string) => {
+    setIsPreparing(true);
+    try {
+      const prepared = await prepareImageFromDataUrl(sampleDataUrl);
+      processImageForTranslation(prepared.dataUrl, targetLanguage);
+    } catch (err) {
+      setNotice(
+        err instanceof ImageProcessingError ? err.message : 'No se pudo cargar la foto de prueba.'
+      );
+    } finally {
+      setIsPreparing(false);
+    }
   };
 
   // Reset to initial camera state (User accepted the translation)
   const handleResetToCamera = () => {
+    abortRef.current?.abort();
     setCapturedImage(null);
     setTranslationData(null);
     setTranslationError(null);
@@ -165,6 +305,24 @@ export default function App() {
         onChange={handleFileUpload}
       />
 
+      {/* Aviso temporal (errores antes de mostrar el resultado) */}
+      {notice && (
+        <div
+          role="alert"
+          className="fixed top-16 inset-x-4 z-50 mx-auto max-w-sm rounded-xl bg-rose-600/95 px-4 py-2.5 text-center text-xs font-semibold text-white shadow-xl border border-rose-400/40"
+        >
+          {notice}
+        </div>
+      )}
+
+      {/* Procesando imagen (redimensionado/compresión local) */}
+      {isPreparing && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
+          <div className="w-10 h-10 border-4 border-sky-500/20 border-t-sky-400 rounded-full animate-spin" />
+          <p className="text-xs text-slate-200 mt-3 font-medium">Preparando imagen...</p>
+        </div>
+      )}
+
       {/* Top Navigation Bar (Floating over camera) */}
       <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 pt-3 pb-6 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2">
@@ -183,12 +341,7 @@ export default function App() {
           {/* Target language selector */}
           <LanguageSelector
             currentLanguage={targetLanguage}
-            onSelectLanguage={(lang) => {
-              setTargetLanguage(lang);
-              if (capturedImage && !isTranslating) {
-                processImageForTranslation(capturedImage, lang);
-              }
-            }}
+            onSelectLanguage={handleLanguageChange}
           />
 
           {/* Android PWA Install button */}
@@ -318,7 +471,7 @@ export default function App() {
           {/* Big Tactile Shutter Button */}
           <button
             onClick={handleCapture}
-            disabled={!isStreaming || isTranslating}
+            disabled={!isStreaming || isTranslating || isPreparing}
             className="group relative w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
             title="Hacer foto y traducir"
           >
@@ -382,14 +535,10 @@ export default function App() {
           data={translationData}
           isLoading={isTranslating}
           error={translationError}
+          targetLanguage={targetLanguage}
+          onChangeLanguage={handleLanguageChange}
           onAccept={handleResetToCamera}
-          onRetry={() => {
-            if (translationError) {
-              processImageForTranslation(capturedImage, targetLanguage);
-            } else {
-              handleResetToCamera();
-            }
-          }}
+          onRetry={handleRetry}
           onOpenSettings={() => openSettings('api')}
         />
       )}
@@ -398,9 +547,7 @@ export default function App() {
       <SamplePhotosPicker
         isOpen={isSamplePickerOpen}
         onClose={() => setIsSamplePickerOpen(false)}
-        onSelectSample={(sampleBase64) => {
-          processImageForTranslation(sampleBase64, targetLanguage);
-        }}
+        onSelectSample={handleSampleSelected}
       />
 
       {/* Settings Modal with API Key and Credits Tabs */}
